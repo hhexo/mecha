@@ -12,10 +12,10 @@ it should not be expected to be feature-complete (I wish!) or stable.
 
 Do not use this in production code.
 
-# Using Mecha
+# Using mecha
 
-Feel free to add a GitHub dependency. I haven't gone through the effort of
-uploading a crate to crates.io yet.
+If you really want to use mecha, feel free to add a git dependency. I
+haven't gone through the effort of uploading a crate to crates.io yet.
 
 `mecha = { git = "https://github.com/hhexo/mecha.git" }`
 
