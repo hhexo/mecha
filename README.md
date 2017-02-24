@@ -44,4 +44,9 @@ let actor = mecha::spawn(ActorImplementation);
 mecha::Message::custom("MyMessage")
     .with_datum(mecha::MessageVariant::from("blah"))
     .send_to(&actor);
+
+// Be clean and don't forget to stop the actor at the end!
+
+mecha::Message::stop().send_to(&actor);
+
 ```
