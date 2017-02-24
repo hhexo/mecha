@@ -44,35 +44,35 @@ pub enum MessageVariant {
 }
 impl MessageVariant {
     /// Consumes the MessageVariant and converts it to i64 if possible.
-    fn as_i64(self) -> Option<i64> {
+    pub fn as_i64(self) -> Option<i64> {
         match self {
             MessageVariant::I64(x) => Some(x),
             _ => None
         }
     }
     /// Consumes the MessageVariant and converts it to u64 if possible.
-    fn as_u64(self) -> Option<u64> {
+    pub fn as_u64(self) -> Option<u64> {
         match self {
             MessageVariant::U64(x) => Some(x),
             _ => None
         }
     }
     /// Consumes the MessageVariant and converts it to f64 if possible.
-    fn as_f64(self) -> Option<f64> {
+    pub fn as_f64(self) -> Option<f64> {
         match self {
             MessageVariant::F64(x) => Some(x),
             _ => None
         }
     }
     /// Consumes the MessageVariant and converts it to String if possible.
-    fn as_str(self) -> Option<String> {
+    pub fn as_str(self) -> Option<String> {
         match self {
             MessageVariant::Str(x) => Some(x),
             _ => None
         }
     }
     /// Consumes the MessageVariant and converts it to a map if possible.
-    fn as_map(self) -> Option<HashMap<String, MessageVariant>> {
+    pub fn as_map(self) -> Option<HashMap<String, MessageVariant>> {
         match self {
             MessageVariant::Map(m) => Some(m),
             _ => None
@@ -80,7 +80,7 @@ impl MessageVariant {
     }
     /// Consumes the MessageVariant and converts it to an ActorAddress if
     /// possible.
-    fn as_act(self) -> Option<ActorAddress> {
+    pub fn as_act(self) -> Option<ActorAddress> {
         match self {
             MessageVariant::Act(a) => Some(a),
             _ => None
