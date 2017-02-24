@@ -122,7 +122,6 @@ fn basic_check() {
 mod textbook_tests {
 
 use std::thread;
-use std::sync::mpsc;
 use std::time::Duration;
 use std::collections::HashMap;
 
@@ -140,7 +139,7 @@ const PRAISE: &'static str = ":praise";
 const CELEBRATE: &'static str = ":celebrate";
 
 impl Actor for Talker {
-    fn process_message(&mut self, message: Message, myself: &ActorAddress) {
+    fn process_message(&mut self, message: Message, _: &ActorAddress) {
         match *message.get_type() {
             MessageType::Custom(GREET) => {
                 match *message.get_datum() {
@@ -175,8 +174,6 @@ impl Actor for Talker {
 
 #[test]
 fn test_talker() {
-    let (tx, rx) = mpsc::channel();
-    let fake_actor = ActorAddress { endpoint: tx };
     let worker = spawn(Talker);
 
     Message::custom(GREET).with_str("Hewey").send_to(&worker);
