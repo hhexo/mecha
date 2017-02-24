@@ -42,7 +42,7 @@ impl mecha::Actor for ActorImplementation {
 let actor = mecha::spawn(ActorImplementation);
 
 mecha::Message::custom("MyMessage")
-    .with_datum(mecha::MessageVariant::from("blah"))
+    .with_datum(mecha::MessageDatum::from("blah"))
     .send_to(&actor);
 
 // Or, more simply:

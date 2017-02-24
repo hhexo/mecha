@@ -16,7 +16,7 @@ use std::collections::HashMap;
 
 use Actor;
 use MessageType;
-use MessageVariant;
+use MessageDatum;
 use Message;
 use ActorAddress;
 use spawn;
@@ -71,49 +71,49 @@ fn basic_check() {
     let mut m = rx.recv().unwrap();
     assert_eq!(*m.get_type(), MessageType::Custom(TEST));
     match *m.get_datum() {
-        MessageVariant::Void => (), // ok
+        MessageDatum::Void => (), // ok
         _ => { assert!(false, "Unexpected message datum"); }
     }
 
     m = rx.recv().unwrap();
     assert_eq!(*m.get_type(), MessageType::Custom(TEST));
     match *m.get_datum() {
-        MessageVariant::I64(-123) => (), // ok
+        MessageDatum::I64(-123) => (), // ok
         _ => { assert!(false, "Unexpected message datum"); }
     }
 
     m = rx.recv().unwrap();
     assert_eq!(*m.get_type(), MessageType::Custom(TEST));
     match *m.get_datum() {
-        MessageVariant::U64(456) => (), // ok
+        MessageDatum::U64(456) => (), // ok
         _ => { assert!(false, "Unexpected message datum"); }
     }
 
     m = rx.recv().unwrap();
     assert_eq!(*m.get_type(), MessageType::Custom(TEST));
     match *m.get_datum() {
-        MessageVariant::F64(123.456) => (), // ok
+        MessageDatum::F64(123.456) => (), // ok
         _ => { assert!(false, "Unexpected message datum"); }
     }
 
     m = rx.recv().unwrap();
     assert_eq!(*m.get_type(), MessageType::Custom(TEST));
     match *m.get_datum() {
-        MessageVariant::Str(ref s) => { assert_eq!(s, "blah"); }, // ok
+        MessageDatum::Str(ref s) => { assert_eq!(s, "blah"); }, // ok
         _ => { assert!(false, "Unexpected message datum"); }
     }
 
     m = rx.recv().unwrap();
     assert_eq!(*m.get_type(), MessageType::Custom(TEST));
     match *m.get_datum() {
-        MessageVariant::Map(ref m) => { assert!(m.is_empty()) }, // ok
+        MessageDatum::Map(ref m) => { assert!(m.is_empty()) }, // ok
         _ => { assert!(false, "Unexpected message datum"); }
     }
 
     m = rx.recv().unwrap();
     assert_eq!(*m.get_type(), MessageType::Custom(TEST));
     match *m.get_datum() {
-        MessageVariant::Act(_) => (), // ok
+        MessageDatum::Act(_) => (), // ok
         _ => { assert!(false, "Unexpected message datum"); }
     }
 }
@@ -134,7 +134,7 @@ use std::collections::HashMap;
 
 use Actor;
 use MessageType;
-use MessageVariant;
+use MessageDatum;
 use Message;
 use ActorAddress;
 use spawn;
@@ -150,7 +150,7 @@ impl Actor for Talker {
         match *message.get_type() {
             MessageType::Custom(GREET) => {
                 match *message.get_datum() {
-                    MessageVariant::Str(ref s) => {
+                    MessageDatum::Str(ref s) => {
                         println!("Hello {}!", s);
                     },
                     _ => (),
@@ -158,7 +158,7 @@ impl Actor for Talker {
             },
             MessageType::Custom(PRAISE) => {
                 match *message.get_datum() {
-                    MessageVariant::Str(ref s) => {
+                    MessageDatum::Str(ref s) => {
                         println!("{}, you're amazing!", s);
                     },
                     _ => (),
@@ -166,7 +166,7 @@ impl Actor for Talker {
             },
             MessageType::Custom(CELEBRATE) => {
                 match *message.get_datum() {
-                    MessageVariant::Map(ref m) => {
+                    MessageDatum::Map(ref m) => {
                         let name = m.get("name").unwrap().clone().as_str().unwrap();
                         let age = m.get("age").unwrap().clone().as_u64().unwrap();
                         println!("Here's to another {} years, {}!", age, name);
@@ -186,8 +186,8 @@ fn test_talker() {
     Message::custom(GREET).with_str("Hewey").send_to(&worker);
     Message::custom(PRAISE).with_str("Dewey").send_to(&worker);
     let mut m = HashMap::new();
-    m.insert("name".to_string(), MessageVariant::from("Louie"));
-    m.insert("age".to_string(), MessageVariant::from(16u64));
+    m.insert("name".to_string(), MessageDatum::from("Louie"));
+    m.insert("age".to_string(), MessageDatum::from(16u64));
     Message::custom(CELEBRATE).with_map(m).send_to(&worker);
 
     Message::stop().send_to(&worker);

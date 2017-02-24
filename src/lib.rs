@@ -48,7 +48,7 @@
 //! let actor = mecha::spawn(ActorImplementation);
 //!
 //! mecha::Message::custom("MyMessage")
-//!     .with_datum(mecha::MessageVariant::from("blah"))
+//!     .with_datum(mecha::MessageDatum::from("blah"))
 //!     .send_to(&actor);
 //!
 //! // Or, more simply:
@@ -98,86 +98,86 @@ pub enum MessageType {
 
 /// This variant type specifies what kind of data can be passed around in
 /// messages; we believe it is better to have a well defined variant type rather
-/// than something like a Box<Any>. This makes serialization well defined, and
-/// the Map variant can serialize complex data structures.
+/// than something like an Any. This makes serialization well defined, and
+/// the Map variant can serialize complex data structures anyway.
 #[derive(Clone, Debug)]
-pub enum MessageVariant {
+pub enum MessageDatum {
     Void,
     I64(i64),
     U64(u64),
     F64(f64),
     Str(String),
-    Map(HashMap<String, MessageVariant>),
+    Map(HashMap<String, MessageDatum>),
     Act(ActorAddress)
 }
-impl MessageVariant {
-    /// Consumes the MessageVariant and converts it to i64 if possible.
+impl MessageDatum {
+    /// Consumes the MessageDatum and converts it to i64 if possible.
     pub fn as_i64(self) -> Option<i64> {
         match self {
-            MessageVariant::I64(x) => Some(x),
+            MessageDatum::I64(x) => Some(x),
             _ => None
         }
     }
-    /// Consumes the MessageVariant and converts it to u64 if possible.
+    /// Consumes the MessageDatum and converts it to u64 if possible.
     pub fn as_u64(self) -> Option<u64> {
         match self {
-            MessageVariant::U64(x) => Some(x),
+            MessageDatum::U64(x) => Some(x),
             _ => None
         }
     }
-    /// Consumes the MessageVariant and converts it to f64 if possible.
+    /// Consumes the MessageDatum and converts it to f64 if possible.
     pub fn as_f64(self) -> Option<f64> {
         match self {
-            MessageVariant::F64(x) => Some(x),
+            MessageDatum::F64(x) => Some(x),
             _ => None
         }
     }
-    /// Consumes the MessageVariant and converts it to String if possible.
+    /// Consumes the MessageDatum and converts it to String if possible.
     pub fn as_str(self) -> Option<String> {
         match self {
-            MessageVariant::Str(x) => Some(x),
+            MessageDatum::Str(x) => Some(x),
             _ => None
         }
     }
-    /// Consumes the MessageVariant and converts it to a map if possible.
-    pub fn as_map(self) -> Option<HashMap<String, MessageVariant>> {
+    /// Consumes the MessageDatum and converts it to a map if possible.
+    pub fn as_map(self) -> Option<HashMap<String, MessageDatum>> {
         match self {
-            MessageVariant::Map(m) => Some(m),
+            MessageDatum::Map(m) => Some(m),
             _ => None
         }
     }
-    /// Consumes the MessageVariant and converts it to an ActorAddress if
+    /// Consumes the MessageDatum and converts it to an ActorAddress if
     /// possible.
     pub fn as_act(self) -> Option<ActorAddress> {
         match self {
-            MessageVariant::Act(a) => Some(a),
+            MessageDatum::Act(a) => Some(a),
             _ => None
         }
     }
 }
-impl From<i64> for MessageVariant {
-    fn from(x: i64) -> MessageVariant { MessageVariant::I64(x) }
+impl From<i64> for MessageDatum {
+    fn from(x: i64) -> MessageDatum { MessageDatum::I64(x) }
 }
-impl From<u64> for MessageVariant {
-    fn from(x: u64) -> MessageVariant { MessageVariant::U64(x) }
+impl From<u64> for MessageDatum {
+    fn from(x: u64) -> MessageDatum { MessageDatum::U64(x) }
 }
-impl From<f64> for MessageVariant {
-    fn from(x: f64) -> MessageVariant { MessageVariant::F64(x) }
+impl From<f64> for MessageDatum {
+    fn from(x: f64) -> MessageDatum { MessageDatum::F64(x) }
 }
-impl From<String> for MessageVariant {
-    fn from(x: String) -> MessageVariant { MessageVariant::Str(x) }
+impl From<String> for MessageDatum {
+    fn from(x: String) -> MessageDatum { MessageDatum::Str(x) }
 }
-impl<'a> From<&'a str> for MessageVariant {
-    fn from(x: &'a str) -> MessageVariant { MessageVariant::Str(x.to_string()) }
+impl<'a> From<&'a str> for MessageDatum {
+    fn from(x: &'a str) -> MessageDatum { MessageDatum::Str(x.to_string()) }
 }
-impl From<HashMap<String, MessageVariant>> for MessageVariant {
-    fn from(x: HashMap<String, MessageVariant>) -> MessageVariant { MessageVariant::Map(x) }
+impl From<HashMap<String, MessageDatum>> for MessageDatum {
+    fn from(x: HashMap<String, MessageDatum>) -> MessageDatum { MessageDatum::Map(x) }
 }
-impl From<ActorAddress> for MessageVariant {
-    fn from(x: ActorAddress) -> MessageVariant { MessageVariant::Act(x) }
+impl From<ActorAddress> for MessageDatum {
+    fn from(x: ActorAddress) -> MessageDatum { MessageDatum::Act(x) }
 }
-impl<'a> From<&'a ActorAddress> for MessageVariant {
-    fn from(x: &'a ActorAddress) -> MessageVariant { MessageVariant::Act(x.clone()) }
+impl<'a> From<&'a ActorAddress> for MessageDatum {
+    fn from(x: &'a ActorAddress) -> MessageDatum { MessageDatum::Act(x.clone()) }
 }
 
 /// A Message contains a type, the actor from whom the message comes, and a
@@ -186,14 +186,14 @@ impl<'a> From<&'a ActorAddress> for MessageVariant {
 pub struct Message {
     mt: MessageType,
     sender: ActorAddress,
-    datum: MessageVariant
+    datum: MessageDatum
 }
 
 /// The builder struct for a Message.
 pub struct MessageBuilder {
     mt: MessageType,
     sender: Option<ActorAddress>,
-    datum: Option<MessageVariant>
+    datum: Option<MessageDatum>
 }
 
 impl Message {
@@ -202,7 +202,7 @@ impl Message {
     /// Gets the sender of the message.
     pub fn get_sender(&self) -> &ActorAddress { &self.sender }
     /// Gets the datum of the message.
-    pub fn get_datum(&self) -> &MessageVariant { &self.datum }
+    pub fn get_datum(&self) -> &MessageDatum { &self.datum }
 
     /// Initializes a message builder for an Init typed message.
     pub fn init() -> MessageBuilder {
@@ -240,39 +240,39 @@ impl MessageBuilder {
     }
 
     /// Specifies the datum of the message.
-    pub fn with_datum<'a>(&'a mut self, d: MessageVariant) -> &'a mut MessageBuilder {
+    pub fn with_datum<'a>(&'a mut self, d: MessageDatum) -> &'a mut MessageBuilder {
         self.datum = Some(d);
         self
     }
 
     /// Specifies an i64 as the datum of the message.
     pub fn with_i64<'a>(&'a mut self, i: i64) -> &'a mut MessageBuilder {
-        self.with_datum(MessageVariant::from(i))
+        self.with_datum(MessageDatum::from(i))
     }
 
     /// Specifies an u64 as the datum of the message.
     pub fn with_u64<'a>(&'a mut self, u: u64) -> &'a mut MessageBuilder {
-        self.with_datum(MessageVariant::from(u))
+        self.with_datum(MessageDatum::from(u))
     }
 
     /// Specifies an f64 as the datum of the message.
     pub fn with_f64<'a>(&'a mut self, f: f64) -> &'a mut MessageBuilder {
-        self.with_datum(MessageVariant::from(f))
+        self.with_datum(MessageDatum::from(f))
     }
 
     /// Specifies a string as the datum of the message.
     pub fn with_str<'a>(&'a mut self, s: &str) -> &'a mut MessageBuilder {
-        self.with_datum(MessageVariant::from(s.to_string()))
+        self.with_datum(MessageDatum::from(s.to_string()))
     }
 
     /// Specifies a map as the datum of the message.
-    pub fn with_map<'a>(&'a mut self, m: HashMap<String, MessageVariant>) -> &'a mut MessageBuilder {
-        self.with_datum(MessageVariant::from(m))
+    pub fn with_map<'a>(&'a mut self, m: HashMap<String, MessageDatum>) -> &'a mut MessageBuilder {
+        self.with_datum(MessageDatum::from(m))
     }
 
     /// Specifies an actor as the datum of the message.
     pub fn with_act<'a>(&'a mut self, a: &ActorAddress) -> &'a mut MessageBuilder {
-        self.with_datum(MessageVariant::from(a))
+        self.with_datum(MessageDatum::from(a))
     }
 
     fn build(&self) -> Message {
@@ -282,7 +282,7 @@ impl MessageBuilder {
             sender: self.sender.clone().unwrap_or(
                 ActorAddress { endpoint: fake_tx }), // TODO: FIX. Leaks a broken channel.
             datum: match self.datum {
-                None => MessageVariant::Void,
+                None => MessageDatum::Void,
                 Some(ref x) => x.clone(),
             }
         }
