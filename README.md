@@ -45,8 +45,17 @@ mecha::Message::custom("MyMessage")
     .with_datum(mecha::MessageVariant::from("blah"))
     .send_to(&actor);
 
+// Or, more simply:
+
+mecha::Message::custom("MyMessage").with_str("blah").send_to(&actor);
+
 // Be clean and don't forget to stop the actor at the end!
 
 mecha::Message::stop().send_to(&actor);
+
+// Wait some time if you want to see the output printed by the other thread
+use std::thread;
+use std::time::Duration;
+thread::sleep(Duration::from_millis(500));
 
 ```
