@@ -42,6 +42,51 @@ pub enum MessageVariant {
     Map(HashMap<String, MessageVariant>),
     Act(ActorAddress)
 }
+impl MessageVariant {
+    /// Consumes the MessageVariant and converts it to i64 if possible.
+    fn as_i64(self) -> Option<i64> {
+        match self {
+            MessageVariant::I64(x) => Some(x),
+            _ => None
+        }
+    }
+    /// Consumes the MessageVariant and converts it to u64 if possible.
+    fn as_u64(self) -> Option<u64> {
+        match self {
+            MessageVariant::U64(x) => Some(x),
+            _ => None
+        }
+    }
+    /// Consumes the MessageVariant and converts it to f64 if possible.
+    fn as_f64(self) -> Option<f64> {
+        match self {
+            MessageVariant::F64(x) => Some(x),
+            _ => None
+        }
+    }
+    /// Consumes the MessageVariant and converts it to String if possible.
+    fn as_str(self) -> Option<String> {
+        match self {
+            MessageVariant::Str(x) => Some(x),
+            _ => None
+        }
+    }
+    /// Consumes the MessageVariant and converts it to a map if possible.
+    fn as_map(self) -> Option<HashMap<String, MessageVariant>> {
+        match self {
+            MessageVariant::Map(m) => Some(m),
+            _ => None
+        }
+    }
+    /// Consumes the MessageVariant and converts it to an ActorAddress if
+    /// possible.
+    fn as_act(self) -> Option<ActorAddress> {
+        match self {
+            MessageVariant::Act(a) => Some(a),
+            _ => None
+        }
+    }
+}
 impl From<i64> for MessageVariant {
     fn from(x: i64) -> MessageVariant { MessageVariant::I64(x) }
 }
@@ -240,116 +285,4 @@ pub fn spawn<T: Actor + Send + 'static>(mut implementor: T) -> ActorAddress {
 
 
 #[cfg(test)]
-mod tests {
-
-use std::thread;
-use std::sync::mpsc;
-use std::time::Duration;
-use std::collections::HashMap;
-
-use Actor;
-use MessageType;
-use MessageVariant;
-use Message;
-use ActorAddress;
-use spawn;
-
-pub struct Echo;
-
-const TEST : &'static str = ":test";
-
-impl Actor for Echo {
-    fn process_message(&mut self, message: Message, myself: &ActorAddress) {
-        match *message.get_type() {
-            MessageType::Init => {
-                Message::init().with_sender(myself)
-                               .with_datum(message.get_datum().clone())
-                               .send_to(message.get_sender());
-            },
-            MessageType::Stop => {
-                Message::stop().with_sender(myself)
-                               .with_datum(message.get_datum().clone())
-                               .send_to(message.get_sender());
-            },
-            MessageType::Custom(s) => {
-                Message::custom(s).with_sender(myself)
-                                  .with_datum(message.get_datum().clone())
-                                  .send_to(message.get_sender());
-            },
-        }
-    }
-}
-
-#[test]
-fn basic_check() {
-    let (tx, rx) = mpsc::channel();
-    let fake_actor = ActorAddress { endpoint: tx };
-    let worker = spawn(Echo);
-
-     // Hopefully this is enough for the init message to get to the worker
-    thread::sleep(Duration::from_millis(500));
-
-    Message::custom(TEST).with_sender(&fake_actor).send_to(&worker);
-    Message::custom(TEST).with_sender(&fake_actor).with_i64(-123).send_to(&worker);
-    Message::custom(TEST).with_sender(&fake_actor).with_u64(456).send_to(&worker);
-    Message::custom(TEST).with_sender(&fake_actor).with_f64(123.456).send_to(&worker);
-    Message::custom(TEST).with_sender(&fake_actor).with_str("blah").send_to(&worker);
-    Message::custom(TEST).with_sender(&fake_actor).with_map(HashMap::new()).send_to(&worker);
-    Message::custom(TEST).with_sender(&fake_actor).with_act(&worker).send_to(&worker);
-    Message::stop().with_sender(&fake_actor).send_to(&worker);
-
-     // Hopefully this is enough for the stop message to get to the worker
-    thread::sleep(Duration::from_millis(500));
-
-    let mut m = rx.recv().unwrap();
-    assert_eq!(*m.get_type(), MessageType::Custom(TEST));
-    match *m.get_datum() {
-        MessageVariant::Void => (), // ok
-        _ => { assert!(false, "Unexpected message datum"); }
-    }
-
-    m = rx.recv().unwrap();
-    assert_eq!(*m.get_type(), MessageType::Custom(TEST));
-    match *m.get_datum() {
-        MessageVariant::I64(-123) => (), // ok
-        _ => { assert!(false, "Unexpected message datum"); }
-    }
-
-    m = rx.recv().unwrap();
-    assert_eq!(*m.get_type(), MessageType::Custom(TEST));
-    match *m.get_datum() {
-        MessageVariant::U64(456) => (), // ok
-        _ => { assert!(false, "Unexpected message datum"); }
-    }
-
-    m = rx.recv().unwrap();
-    assert_eq!(*m.get_type(), MessageType::Custom(TEST));
-    match *m.get_datum() {
-        MessageVariant::F64(123.456) => (), // ok
-        _ => { assert!(false, "Unexpected message datum"); }
-    }
-
-    m = rx.recv().unwrap();
-    assert_eq!(*m.get_type(), MessageType::Custom(TEST));
-    match *m.get_datum() {
-        MessageVariant::Str(ref s) => { assert_eq!(s, "blah"); }, // ok
-        _ => { assert!(false, "Unexpected message datum"); }
-    }
-
-    m = rx.recv().unwrap();
-    assert_eq!(*m.get_type(), MessageType::Custom(TEST));
-    match *m.get_datum() {
-        MessageVariant::Map(ref m) => { assert!(m.is_empty()) }, // ok
-        _ => { assert!(false, "Unexpected message datum"); }
-    }
-
-    m = rx.recv().unwrap();
-    assert_eq!(*m.get_type(), MessageType::Custom(TEST));
-    match *m.get_datum() {
-        MessageVariant::Act(_) => (), // ok
-        _ => { assert!(false, "Unexpected message datum"); }
-    }
-}
-
-}
-
+mod tests;
