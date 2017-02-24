@@ -1,0 +1,6 @@
+[package]
+name = "mecha"
+version = "0.1.0"
+authors = ["Dario Domizioli <dario.domizioli@gmail.com>"]
+
+[dependencies]
