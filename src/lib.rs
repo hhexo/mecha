@@ -275,7 +275,9 @@ impl MessageBuilder {
         self.with_datum(MessageDatum::from(a))
     }
 
-    fn build(&self) -> Message {
+    /// Builds the Message, should a user want to store it. Generally this is
+    /// not necessary, just use `send_to()` to send it directly.
+    pub fn build(&self) -> Message {
         let (fake_tx, _) = std::sync::mpsc::channel();
         Message {
             mt: self.mt.clone(),
@@ -293,7 +295,7 @@ impl MessageBuilder {
     /// This function is in the builder class for stylistic purposes: this
     /// way, it is possible to have nice one-liners.
     ///
-    /// `Message::custom("blah").sender(&some_actor).with_i64(123).send_to(&other_actor);`
+    /// `mecha::Message::custom("blah").with_sender(&some_actor).with_i64(123).send_to(&other_actor);`
     ///
     pub fn send_to(&self, to: &ActorAddress) {
         to.endpoint.send(self.build()).unwrap_or(()); // TODO: Error handling.
