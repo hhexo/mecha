@@ -356,3 +356,5 @@ pub fn spawn<T: Actor + Send + 'static>(mut implementor: T) -> ActorAddress {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_c5d1;
