@@ -23,6 +23,7 @@ use MessageDatum;
 use Message;
 use ActorAddress;
 use spawn_link;
+use spawn;
 
 // ----------------------------------------------------------------------------
 
@@ -149,6 +150,8 @@ fn test_counter() {
     }
 }
 
+// ----------------------------------------------------------------------------
+
 struct CounterApi {
     counter_actor: ActorAddress
 }
@@ -188,7 +191,71 @@ fn test_counter_with_api() {
     }
 }
 
+// ----------------------------------------------------------------------------
 
+struct CounterBidirectional {
+    count: i64
+}
 
+const NEXT_ACK : &'static str = ":next-ack";
+
+impl Actor for CounterBidirectional {
+    fn process_message(&mut self, message: Message, myself: &ActorAddress) {
+        match *message.get_type() {
+            MessageType::Custom(NEXT) => {
+                Message::custom(NEXT_ACK).with_sender(myself)
+                                         .with_i64(self.count)
+                                         .send_to(message.get_sender());
+                self.count += 1;
+            },
+            _ => ()
+        }
+    }
+}
+
+struct CounterSynchronousApi {
+    counter_actor: ActorAddress
+}
+impl CounterSynchronousApi {
+    pub fn start(count: i64) -> CounterSynchronousApi {
+        CounterSynchronousApi {
+            counter_actor: spawn(CounterBidirectional { count: count })
+        }
+    }
+
+    pub fn next(&self) -> i64 {
+        let (tx, rx) = mpsc::channel();
+        let fake_actor = ActorAddress::new(tx);
+        Message::custom(NEXT).with_sender(&fake_actor)
+                             .send_to(&self.counter_actor);
+        let m = rx.recv().unwrap();
+        assert_eq!(*m.get_type(), MessageType::Custom(NEXT_ACK));
+        m.get_datum().clone().as_i64().unwrap()
+    }
+
+    pub fn shutdown(&self) {
+        let (tx, rx) = mpsc::channel();
+        let fake_actor = ActorAddress::new(tx);
+        Message::link().with_sender(&fake_actor).send_to(&self.counter_actor);
+        Message::shutdown().with_sender(&fake_actor)
+                           .send_to(&self.counter_actor);
+        let m = rx.recv().unwrap();
+        assert_eq!(*m.get_type(), MessageType::Exited);
+    }
+}
+
+#[test]
+fn test_counter_bidirectional_synchronous() {
+    let api = CounterSynchronousApi::start(0i64);
+
+    let a = api.next();
+    let b = api.next();
+    let c = api.next();
+    api.shutdown();
+
+    assert_eq!(a, 0i64);
+    assert_eq!(b, 1i64);
+    assert_eq!(c, 2i64);
+}
 
 }
