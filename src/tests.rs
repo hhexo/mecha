@@ -60,7 +60,7 @@ impl Actor for Echo {
 #[test]
 fn basic_check() {
     let (tx, rx) = mpsc::channel();
-    let fake_actor = ActorAddress { endpoint: tx };
+    let fake_actor = ActorAddress::new(tx);
     let worker = spawn(Echo);
 
      // Hopefully this is enough for the init message to get to the worker

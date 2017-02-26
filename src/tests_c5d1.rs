@@ -92,7 +92,7 @@ impl Actor for Issuer {
 #[test]
 fn test_talker() {
     let (tx, rx) = mpsc::channel();
-    let fake_actor = ActorAddress { endpoint: tx };
+    let fake_actor = ActorAddress::new(tx);
     spawn_link(Issuer, &fake_actor);
 
     // Now let's receive the Exited message.

@@ -39,23 +39,102 @@ impl mecha::Actor for ActorImplementation {
     }
 }
 
-let actor = mecha::spawn(ActorImplementation);
+fn main() {
+    let actor = mecha::spawn(ActorImplementation);
 
-mecha::Message::custom("MyMessage")
-    .with_datum(mecha::MessageDatum::from("blah"))
-    .send_to(&actor);
+    mecha::Message::custom("MyMessage")
+        .with_datum(mecha::MessageDatum::from("blah"))
+        .send_to(&actor);
 
-// Or, more simply:
+    // Or, more simply:
 
-mecha::Message::custom("MyMessage").with_str("blah").send_to(&actor);
+    mecha::Message::custom("MyMessage").with_str("blah").send_to(&actor);
 
-// Be clean and don't forget to stop the actor at the end!
+    // Be clean and don't forget to stop the actor at the end!
 
-mecha::Message::shutdown().send_to(&actor);
+    mecha::Message::shutdown().send_to(&actor);
+}
+```
 
-// Wait some time if you want to see the output printed by the other thread
-use std::thread;
-use std::time::Duration;
-thread::sleep(Duration::from_millis(500));
+Generally you will then have to wait until the actor (which is running in
+another thread) has finished processing the messages and printed the output.
+For a quick-and-dirty example you can just wait a bit:
 
+```
+    use std::thread;
+    use std::time::Duration;
+    thread::sleep(Duration::from_millis(500));
+```
+
+However, that is not the best way to do it. You can create a channel and
+wrap the sender part of it in an ActorAddress; then you can use `spawn_link`
+instead, so your fake actor will be notified when the actor shuts down. At
+that point you can use the receiver part of the channel to wait for the
+Exited message.
+
+The following is the preferred pattern to use:
+
+```
+struct ActorImplementation;
+
+impl mecha::Actor for ActorImplementation {
+    fn process_message(&mut self,
+                       message: mecha::Message,
+                       myself: &mecha::ActorAddress) {
+        println!("I received a message! It was of type...");
+        println!("    {:?}", message.get_type());
+        println!("...with datum...");
+        println!("    {:?}", message.get_datum());
+    }
+}
+
+fn main() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let initiator = mecha::ActorAddress::new(tx);
+    let actor = mecha::spawn_link(ActorImplementation, &initiator);
+
+    mecha::Message::custom("MyMessage").with_str("blah").send_to(&actor);
+
+    mecha::Message::shutdown().send_to(&actor);
+
+    let m = rx.recv().unwrap();
+    assert!(*m.get_type() == mecha::MessageType::Exited);
+}
+```
+You can even have an actor spawn another and link to it during its
+initialization. For example, an actor implementation could look like this:
+
+```
+struct ActorImplementation;
+
+impl mecha::Actor for ActorImplementation {
+    fn process_message(&mut self,
+                       message: mecha::Message,
+                       myself: &mecha::ActorAddress) {
+        println!("I received a message! It was of type...");
+        println!("    {:?}", message.get_type());
+        println!("...with datum...");
+        println!("    {:?}", message.get_datum());
+    }
+}
+
+struct InitiatorActorImplementation;
+
+impl mecha::Actor for InitiatorActorImplementation {
+    fn process_message(&mut self,
+                       message: mecha::Message,
+                       myself: &mecha::ActorAddress) {
+        match *message.get_type() {
+            mecha::MessageType::Init => {
+                mecha::spawn_link(ActorImplementation, myself);
+            },
+            mecha::MessageType::Exited => {
+                // The other actor has finished, so we can send ourselves
+                // a Shutdown message.
+                mecha::Message::shutdown().send_to(myself);
+            },
+            _ => ()
+        }
+    }
+}
 ```
