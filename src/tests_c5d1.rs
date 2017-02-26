@@ -24,6 +24,8 @@ use Message;
 use ActorAddress;
 use spawn_link;
 
+// ----------------------------------------------------------------------------
+
 struct Talker;
 
 const GREET: &'static str = ":greet";
@@ -103,5 +105,90 @@ fn test_talker() {
         _ => { assert!(false, "Unexpected message datum"); }
     }
 }
+
+// ----------------------------------------------------------------------------
+
+struct Counter {
+    count: i64
+}
+impl Counter {
+    pub fn new() -> Counter { Counter { count: 0i64 } }
+}
+
+const NEXT : &'static str = ":next";
+
+impl Actor for Counter {
+    fn process_message(&mut self, message: Message, _: &ActorAddress) {
+        match *message.get_type() {
+            MessageType::Custom(NEXT) => {
+                println!("Current count: {}", self.count);
+                self.count += 1;
+            },
+            _ => ()
+        }
+    }
+}
+
+#[test]
+fn test_counter() {
+    let (tx, rx) = mpsc::channel();
+    let fake_actor = ActorAddress::new(tx);
+    let worker = spawn_link(Counter::new(), &fake_actor);
+
+    Message::custom(NEXT).send_to(&worker);
+    Message::custom(NEXT).send_to(&worker);
+    Message::custom(NEXT).send_to(&worker);
+    Message::shutdown().send_to(&worker);
+
+    // Now let's receive the Exited message.
+    let m = rx.recv().unwrap();
+    assert_eq!(*m.get_type(), MessageType::Exited);
+    match *m.get_datum() {
+        MessageDatum::Void => (), // ok
+        _ => { assert!(false, "Unexpected message datum"); }
+    }
+}
+
+struct CounterApi {
+    counter_actor: ActorAddress
+}
+impl CounterApi {
+    pub fn start(count: i64, link: &ActorAddress) -> CounterApi {
+        CounterApi {
+            counter_actor: spawn_link(Counter { count: count }, link)
+        }
+    }
+
+    pub fn next(&self) {
+        Message::custom(NEXT).send_to(&self.counter_actor);
+    }
+
+    pub fn shutdown(&self) {
+        Message::shutdown().send_to(&self.counter_actor);
+    }
+}
+
+#[test]
+fn test_counter_with_api() {
+    let (tx, rx) = mpsc::channel();
+    let fake_actor = ActorAddress::new(tx);
+    let api = CounterApi::start(0i64, &fake_actor);
+
+    api.next();
+    api.next();
+    api.next();
+    api.shutdown();
+
+    // Now let's receive the Exited message.
+    let m = rx.recv().unwrap();
+    assert_eq!(*m.get_type(), MessageType::Exited);
+    match *m.get_datum() {
+        MessageDatum::Void => (), // ok
+        _ => { assert!(false, "Unexpected message datum"); }
+    }
+}
+
+
+
 
 }
