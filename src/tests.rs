@@ -33,10 +33,20 @@ impl Actor for Echo {
                                .with_datum(message.get_datum().clone())
                                .send_to(message.get_sender());
             },
-            MessageType::Stop => {
-                Message::stop().with_sender(myself)
+            MessageType::Exited => {
+                Message::exited().with_sender(myself)
+                                 .with_datum(message.get_datum().clone())
+                                 .send_to(message.get_sender());
+            },
+            MessageType::Link => {
+                Message::link().with_sender(myself)
                                .with_datum(message.get_datum().clone())
                                .send_to(message.get_sender());
+            },
+            MessageType::Shutdown => {
+                Message::shutdown().with_sender(myself)
+                                   .with_datum(message.get_datum().clone())
+                                   .send_to(message.get_sender());
             },
             MessageType::Custom(s) => {
                 Message::custom(s).with_sender(myself)
@@ -56,6 +66,7 @@ fn basic_check() {
      // Hopefully this is enough for the init message to get to the worker
     thread::sleep(Duration::from_millis(500));
 
+    Message::link().with_sender(&fake_actor).send_to(&worker);
     Message::custom(TEST).with_sender(&fake_actor).send_to(&worker);
     Message::custom(TEST).with_sender(&fake_actor).with_i64(-123).send_to(&worker);
     Message::custom(TEST).with_sender(&fake_actor).with_u64(456).send_to(&worker);
@@ -63,12 +74,21 @@ fn basic_check() {
     Message::custom(TEST).with_sender(&fake_actor).with_str("blah").send_to(&worker);
     Message::custom(TEST).with_sender(&fake_actor).with_map(HashMap::new()).send_to(&worker);
     Message::custom(TEST).with_sender(&fake_actor).with_act(&worker).send_to(&worker);
-    Message::stop().with_sender(&fake_actor).send_to(&worker);
+    Message::shutdown().with_sender(&fake_actor).send_to(&worker);
 
      // Hopefully this is enough for the stop message to get to the worker
     thread::sleep(Duration::from_millis(500));
 
+    // First we're going to receive the echoed Link message.
     let mut m = rx.recv().unwrap();
+    assert_eq!(*m.get_type(), MessageType::Link);
+    match *m.get_datum() {
+        MessageDatum::Void => (), // ok
+        _ => { assert!(false, "Unexpected message datum"); }
+    }
+
+    // Then the custom messages.
+    m = rx.recv().unwrap();
     assert_eq!(*m.get_type(), MessageType::Custom(TEST));
     match *m.get_datum() {
         MessageDatum::Void => (), // ok
@@ -114,6 +134,21 @@ fn basic_check() {
     assert_eq!(*m.get_type(), MessageType::Custom(TEST));
     match *m.get_datum() {
         MessageDatum::Act(_) => (), // ok
+        _ => { assert!(false, "Unexpected message datum"); }
+    }
+
+    // Finally we are going to receive the echoed Shutdown message and then the
+    // Exited message because of the link.
+    m = rx.recv().unwrap();
+    assert_eq!(*m.get_type(), MessageType::Shutdown);
+    match *m.get_datum() {
+        MessageDatum::Void => (), // ok
+        _ => { assert!(false, "Unexpected message datum"); }
+    }
+    m = rx.recv().unwrap();
+    assert_eq!(*m.get_type(), MessageType::Exited);
+    match *m.get_datum() {
+        MessageDatum::Void => (), // ok
         _ => { assert!(false, "Unexpected message datum"); }
     }
 }

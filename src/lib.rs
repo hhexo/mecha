@@ -57,7 +57,7 @@
 //!
 //! // Be clean and don't forget to stop the actor at the end!
 //!
-//! mecha::Message::stop().send_to(&actor);
+//! mecha::Message::shutdown().send_to(&actor);
 //!
 //! // Wait some time if you want to see the output printed by the other thread
 //! use std::thread;
@@ -88,12 +88,22 @@ pub struct ActorAddress {
 pub enum MessageType {
     /// A message of this type is automatically sent to any actor upon spawning.
     /// If an actor does not need initialization, it can safely ignore the
-    /// message.
+    /// message. This message cannot be manually sent (and the builder pattern
+    /// for Message prevents that); it is automatically sent to actors by the
+    /// mecha implementation.
     Init,
+    /// A message of this type notifies linked actors that the sender has
+    /// exited. This message cannot be manually sent (and the builder pattern
+    /// for Message prevents that); it is automatically sent to actors by the
+    /// mecha implementation.
+    Exited,
+    /// A message of this type will tell the actor to be linked to the sender,
+    /// i.e. the sender will be notified when the receiver exits.
+    Link,
     /// A message of this type will stop and kill the actor receiving it.
-    Stop,
+    Shutdown,
     /// This is a custom message type to use for user-defined messages.
-    Custom(&'static str)
+    Custom(&'static str),
 }
 
 /// This variant type specifies what kind of data can be passed around in
@@ -205,7 +215,7 @@ impl Message {
     pub fn get_datum(&self) -> &MessageDatum { &self.datum }
 
     /// Initializes a message builder for an Init typed message.
-    pub fn init() -> MessageBuilder {
+    fn init() -> MessageBuilder {
         MessageBuilder {
             mt: MessageType::Init,
             sender: None,
@@ -213,10 +223,28 @@ impl Message {
         }
     }
 
-    /// Initializes a message builder for a Stop typed message.
-    pub fn stop() -> MessageBuilder {
+    /// Initializes a message builder for an Exited typed message.
+    fn exited() -> MessageBuilder {
         MessageBuilder {
-            mt: MessageType::Stop,
+            mt: MessageType::Exited,
+            sender: None,
+            datum: None,
+        }
+    }
+
+    /// Initializes a message builder for a Link typed message.
+    pub fn link() -> MessageBuilder {
+        MessageBuilder {
+            mt: MessageType::Link,
+            sender: None,
+            datum: None,
+        }
+    }
+
+    /// Initializes a message builder for a Shutdown typed message.
+    pub fn shutdown() -> MessageBuilder {
+        MessageBuilder {
+            mt: MessageType::Shutdown,
             sender: None,
             datum: None,
         }
@@ -313,39 +341,58 @@ pub trait Actor {
     fn process_message(&mut self, message: Message, myself: &ActorAddress);
 }
 
-/// Spawns an actor based on the provided Actor implementor, whose ownership is
-/// acquired by the spawned thread. Returns an ActorAddress identifying the
-/// spawned actor.
-pub fn spawn<T: Actor + Send + 'static>(mut implementor: T) -> ActorAddress {
+#[derive(Debug)]
+struct ActorInternal {
+    address: ActorAddress,
+    mailbox: mpsc::Receiver<Message>,
+    uplinks: Vec<ActorAddress>
+}
+
+fn spawn_internal<T: Actor + Send + 'static>(mut implementor: T, link: Option<&ActorAddress>) -> ActorAddress {
     let (tx, rx) = mpsc::channel::<Message>();
     let actor = ActorAddress { endpoint: tx.clone() };
     // Put an Init message on the channel immediately.
     Message::init().send_to(&actor);
+    // Also put a Link message if we have a link.
+    match link {
+        None => (),
+        Some(a) => Message::link().with_sender(a).send_to(&actor)
+    }
     // Then spawn another thread.
     thread::spawn(move || {
-        let rx_internal = rx;
-        let tx_internal = tx;
-        let actor_internal = ActorAddress { endpoint: tx_internal };
+        let mut internal = ActorInternal {
+            address: ActorAddress { endpoint: tx },
+            mailbox: rx,
+            uplinks: Vec::new()
+        };
         loop {
-            let rcvd_msg = rx_internal.recv();
+            let rcvd_msg = internal.mailbox.recv();
             match rcvd_msg {
                 Ok(msg) => {
                     let mt = msg.get_type().clone(); // for later
+                    let ms = msg.get_sender().clone(); // for later
                     // Consume and process the message
-                    implementor.process_message(msg, &actor_internal);
+                    implementor.process_message(msg, &internal.address);
                     // Perform extra standard actions
                     match mt {
-                        MessageType::Stop => {
-                            // Stop this actor.
-                            println!("Exiting upon request.");
+                        MessageType::Link => {
+                            // Link this actor to the sender.
+                            internal.uplinks.push(ms);
+                        },
+                        MessageType::Shutdown => {
+                            // Shut down this actor and send a message to all
+                            // uplinks.
+                            for a in internal.uplinks.iter() {
+                                Message::exited().with_sender(&internal.address)
+                                                 .send_to(a);
+                            }
                             break;
                         },
                         _ => ()
                     }
                 },
                 Err(_) => {
-                    println!("Exiting upon error receiving message!");
-                    break;
+                    panic!("Exiting upon error receiving from a channel!");
                 }
             }
         }
@@ -353,6 +400,21 @@ pub fn spawn<T: Actor + Send + 'static>(mut implementor: T) -> ActorAddress {
     actor
 }
 
+
+/// Spawns an actor based on the provided Actor implementor, whose ownership is
+/// acquired by the spawned thread. Returns an ActorAddress identifying the
+/// spawned actor.
+pub fn spawn<T: Actor + Send + 'static>(implementor: T) -> ActorAddress {
+    spawn_internal(implementor, None)
+}
+
+/// Spawns an actor based on the provided Actor implementor, whose ownership is
+/// acquired by the spawned thread, and links it to the actor provided (this
+/// means the actor provided will be notified when the new actor exits).
+/// Returns an ActorAddress identifying the spawned actor.
+pub fn spawn_link<T: Actor + Send + 'static>(implementor: T, link: &ActorAddress) -> ActorAddress {
+    spawn_internal(implementor, Some(link))
+}
 
 #[cfg(test)]
 mod tests;

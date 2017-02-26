@@ -14,8 +14,7 @@
 #[cfg(test)]
 mod chapter5_day1 {
 
-use std::thread;
-use std::time::Duration;
+use std::sync::mpsc;
 use std::collections::HashMap;
 
 use Actor;
@@ -23,7 +22,7 @@ use MessageType;
 use MessageDatum;
 use Message;
 use ActorAddress;
-use spawn;
+use spawn_link;
 
 struct Talker;
 
@@ -65,21 +64,44 @@ impl Actor for Talker {
     }
 }
 
+struct Issuer;
+
+impl Actor for Issuer {
+    fn process_message(&mut self, message: Message, myself: &ActorAddress) {
+        match *message.get_type() {
+            MessageType::Init => {
+                let worker = spawn_link(Talker, myself);
+                Message::custom(GREET).with_str("Hewey").send_to(&worker);
+                Message::custom(PRAISE).with_str("Dewey").send_to(&worker);
+                let mut m = HashMap::new();
+                m.insert("name".to_string(), MessageDatum::from("Louie"));
+                m.insert("age".to_string(), MessageDatum::from(16u64));
+                Message::custom(CELEBRATE).with_map(m).send_to(&worker);
+                Message::shutdown().send_to(&worker);
+            },
+            MessageType::Exited => {
+                // This means our worker has exited, we can exit too. Send
+                // ourselves a Shutdown.
+                Message::shutdown().send_to(myself);
+            },
+            _ => ()
+        }
+    }
+}
+
 #[test]
 fn test_talker() {
-    let worker = spawn(Talker);
+    let (tx, rx) = mpsc::channel();
+    let fake_actor = ActorAddress { endpoint: tx };
+    spawn_link(Issuer, &fake_actor);
 
-    Message::custom(GREET).with_str("Hewey").send_to(&worker);
-    Message::custom(PRAISE).with_str("Dewey").send_to(&worker);
-    let mut m = HashMap::new();
-    m.insert("name".to_string(), MessageDatum::from("Louie"));
-    m.insert("age".to_string(), MessageDatum::from(16u64));
-    Message::custom(CELEBRATE).with_map(m).send_to(&worker);
-
-    Message::stop().send_to(&worker);
-
-     // Hopefully this is enough for the stop message to get to the worker
-    thread::sleep(Duration::from_millis(500));
+    // Now let's receive the Exited message.
+    let m = rx.recv().unwrap();
+    assert_eq!(*m.get_type(), MessageType::Exited);
+    match *m.get_datum() {
+        MessageDatum::Void => (), // ok
+        _ => { assert!(false, "Unexpected message datum"); }
+    }
 }
 
 }

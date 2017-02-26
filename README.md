@@ -51,7 +51,7 @@ mecha::Message::custom("MyMessage").with_str("blah").send_to(&actor);
 
 // Be clean and don't forget to stop the actor at the end!
 
-mecha::Message::stop().send_to(&actor);
+mecha::Message::shutdown().send_to(&actor);
 
 // Wait some time if you want to see the output printed by the other thread
 use std::thread;
