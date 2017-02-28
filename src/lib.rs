@@ -150,18 +150,21 @@ use std::thread;
 use std::sync::mpsc;
 use std::collections::HashMap;
 
+extern crate uuid;
+
 /// An ActorAddress structure is used, essentially, just as the identifier of an
 /// actor for sending messages to it. ActorAddresses can be cheaply cloned and
 /// passed around.
 #[derive(Clone, Debug)]
 pub struct ActorAddress {
+    id: uuid::Uuid,
     endpoint: mpsc::Sender<Message>
 }
 
 impl ActorAddress {
     /// Creates a new ActorAddress with a provided sender half of a channel.
     pub fn new(endpoint: mpsc::Sender<Message>) -> ActorAddress {
-        ActorAddress { endpoint: endpoint }
+        ActorAddress { id: uuid::Uuid::new_v4(), endpoint: endpoint }
     }
 }
 
@@ -184,6 +187,30 @@ pub enum MessageType {
     /// for Message prevents that); it is automatically sent to actors by the
     /// mecha implementation.
     Exited,
+    /// This message is used to register an actor with the MasterControlProgram
+    /// actor API. This message cannot be manually sent (and the builder
+    /// pattern for Message prevents that); it is sent to an MCP instance by the
+    /// MCP API implementation.
+    ///
+    /// Register implies Link in the opposite direction. This means that if A
+    /// sends a Register message to the MCP, then the MCP will immediately send
+    /// a Link message to A.
+    Register,
+    /// This message is sent back as a response from the MasterControlProgram
+    /// when a Register message is received. This message cannot be manually
+    /// sent (and the builder pattern for Message prevents that); it is only
+    /// sent by an MCP instance.
+    RegisterResponse,
+    /// This message is used to request an actor by name from the
+    /// MasterControlProgram actor API. This message cannot be manually sent
+    /// (and the builder pattern for Message prevents that); it is sent to an
+    /// MCP instance by the MCP API implementation.
+    WhereIs,
+    /// This message is the response for the request of an actor by name from
+    /// the MasterControlProgram actor API. This message cannot be manually sent
+    /// (and the builder pattern for Message prevents that); it is only sent by
+    /// an MCP instance and handled by the MCP API.
+    WhereIsResponse,
     /// A message of this type will tell the actor to be linked to the sender,
     /// i.e. the sender will be notified when the receiver exits.
     Link,
@@ -319,6 +346,42 @@ impl Message {
         }
     }
 
+    /// Initializes a message builder for a Register typed message.
+    fn register() -> MessageBuilder {
+        MessageBuilder {
+            mt: MessageType::Register,
+            sender: None,
+            datum: None,
+        }
+    }
+
+    /// Initializes a message builder for a RegisterResponse typed message.
+    fn register_response() -> MessageBuilder {
+        MessageBuilder {
+            mt: MessageType::RegisterResponse,
+            sender: None,
+            datum: None,
+        }
+    }
+
+    /// Initializes a message builder for a WhereIs typed message.
+    fn where_is() -> MessageBuilder {
+        MessageBuilder {
+            mt: MessageType::WhereIs,
+            sender: None,
+            datum: None,
+        }
+    }
+
+    /// Initializes a message builder for a WhereIsResponse typed message.
+    fn where_is_response() -> MessageBuilder {
+        MessageBuilder {
+            mt: MessageType::WhereIsResponse,
+            sender: None,
+            datum: None,
+        }
+    }
+
     /// Initializes a message builder for a Link typed message.
     pub fn link() -> MessageBuilder {
         MessageBuilder {
@@ -397,7 +460,7 @@ impl MessageBuilder {
         Message {
             mt: self.mt.clone(),
             sender: self.sender.clone().unwrap_or(
-                ActorAddress { endpoint: fake_tx }), // TODO: FIX. Leaks a broken channel.
+                ActorAddress::new(fake_tx)), // TODO: FIX. Leaks a broken channel.
             datum: match self.datum {
                 None => MessageDatum::Void,
                 Some(ref x) => x.clone(),
@@ -432,25 +495,27 @@ pub trait Actor {
 struct ActorInternal {
     address: ActorAddress,
     mailbox: mpsc::Receiver<Message>,
-    uplinks: Vec<ActorAddress>
+    uplinks: Vec<ActorAddress>,
 }
 
-fn spawn_internal<T: Actor + Send + 'static>(mut implementor: T, link: Option<&ActorAddress>) -> ActorAddress {
+fn spawn_internal<T: Actor + Send + 'static>(mut implementor: T,
+                                             uplink: Option<&ActorAddress>) -> ActorAddress {
     let (tx, rx) = mpsc::channel::<Message>();
-    let actor = ActorAddress { endpoint: tx.clone() };
+    let actor = ActorAddress::new(tx.clone());
+    let actor_internal = actor.clone();
     // Put an Init message on the channel immediately.
     Message::init().send_to(&actor);
-    // Also put a Link message if we have a link.
-    match link {
+    // Also put a Link message if we have an uplink.
+    match uplink {
         None => (),
         Some(a) => Message::link().with_sender(a).send_to(&actor)
     }
     // Then spawn another thread.
     thread::spawn(move || {
         let mut internal = ActorInternal {
-            address: ActorAddress { endpoint: tx },
+            address: actor_internal,
             mailbox: rx,
-            uplinks: Vec::new()
+            uplinks: Vec::new(),
         };
         loop {
             let rcvd_msg = internal.mailbox.recv();
@@ -468,7 +533,8 @@ fn spawn_internal<T: Actor + Send + 'static>(mut implementor: T, link: Option<&A
                         },
                         MessageType::Shutdown => {
                             // Shut down this actor and send a message to all
-                            // uplinks.
+                            // uplinks. The string value is the name of the
+                            // actor (for deregistering purposes).
                             for a in internal.uplinks.iter() {
                                 Message::exited().with_sender(&internal.address)
                                                  .send_to(a);
@@ -499,8 +565,198 @@ pub fn spawn<T: Actor + Send + 'static>(implementor: T) -> ActorAddress {
 /// acquired by the spawned thread, and links it to the actor provided (this
 /// means the actor provided will be notified when the new actor exits).
 /// Returns an ActorAddress identifying the spawned actor.
-pub fn spawn_link<T: Actor + Send + 'static>(implementor: T, link: &ActorAddress) -> ActorAddress {
-    spawn_internal(implementor, Some(link))
+pub fn spawn_link<T: Actor + Send + 'static>(implementor: T, uplink: &ActorAddress) -> ActorAddress {
+    spawn_internal(implementor, Some(uplink))
+}
+
+
+
+#[derive(Debug)]
+struct MasterControlProgramImpl {
+    registered: HashMap<String, ActorAddress>,
+    lookup: HashMap<uuid::Uuid, String>
+}
+
+const MCP_REGISTER_NAME_KEY: &'static str = "name";
+const MCP_REGISTER_ACTOR_KEY: &'static str = "actor";
+
+impl Actor for MasterControlProgramImpl {
+    fn process_message(&mut self, message: Message, myself: &ActorAddress) {
+        match *message.get_type() {
+            MessageType::Exited => {
+                let id = message.get_sender().id.clone();
+                let already_there = self.lookup.contains_key(&id);
+                if already_there {
+                    let key = self.lookup.get(&id).unwrap().clone();
+                    self.registered.remove(&key);
+                    self.lookup.remove(&id);
+                }
+            },
+            MessageType::Register => {
+                let data = message.get_datum().clone().as_map();
+                match data {
+                    None => {
+                        // Void datum means registration failed.
+                        Message::register_response()
+                            .with_sender(myself)
+                            .send_to(message.get_sender());
+                    },
+                    Some(ref m) => {
+                        let name = m.get(MCP_REGISTER_NAME_KEY).unwrap().clone().as_str().unwrap();
+                        let actor = m.get(MCP_REGISTER_ACTOR_KEY).unwrap().clone().as_act().unwrap();
+                        let already_there = self.registered.contains_key(&name);
+                        if already_there {
+                            // Void datum means registration failed.
+                            Message::register_response()
+                                .with_sender(myself)
+                                .send_to(message.get_sender());
+                        } else {
+                            self.registered.insert(name.clone(),
+                                                   actor.clone());
+                            self.lookup.insert(actor.id.clone(),
+                                               name.clone());
+                            Message::link().with_sender(myself)
+                                           .send_to(&actor);
+                            // If registration succeeds we send back the name.
+                            Message::register_response()
+                                .with_sender(myself)
+                                .with_str(&name)
+                                .send_to(message.get_sender());
+                        }
+
+                    }
+                }
+            },
+            MessageType::WhereIs => {
+                match message.get_datum().clone().as_str() {
+                    None => {
+                        // Void datum means "no actor found".
+                        Message::where_is_response()
+                            .with_sender(myself)
+                            .send_to(message.get_sender());
+                    },
+                    Some(s) => {
+                        let already_there = self.registered.contains_key(&s);
+                        if !already_there {
+                            // Void datum means "no actor found".
+                            Message::where_is_response()
+                                .with_sender(myself)
+                                .send_to(message.get_sender());
+                        } else {
+                            Message::where_is_response()
+                                .with_sender(myself)
+                                .with_act(self.registered.get(&s).unwrap())
+                                .send_to(message.get_sender());
+                        }
+                    }
+                }
+            },
+            MessageType::Shutdown => {
+                // This will cause the Exited messages to be dropped off a
+                // broken channel. Oh well.
+                for (_, v) in self.registered.iter() {
+                    Message::shutdown().with_sender(myself).send_to(v);
+                }
+            },
+            _ => ()
+        }
+    }
+}
+
+
+/// The Master Control Program (yes, it's a TRON reference) is essentially the
+/// system process (it's a sort of equivalent to Process in Elixir). It's
+/// internally implemented as an actor, but all its APIs are synchronous.
+///
+/// It offers the functionality to register and get actors by name. When an
+/// actor is registered, it is also linked with the MCP so it knows when it
+/// disappears.
+///
+/// If the MasterControlProgram is dropped, its actor is shut down and all
+/// registered actors will also be shut down, in undefined order. That is not
+/// the recommended or best way to tear down the system.
+#[derive(Debug)]
+pub struct MasterControlProgram {
+    actor: ActorAddress
+}
+
+impl MasterControlProgram {
+    /// Creates a new MasterControlProgram. Normally you'll only need one.
+    pub fn new() -> MasterControlProgram {
+        MasterControlProgram {
+            actor: spawn(MasterControlProgramImpl {
+                registered: HashMap::new(),
+                lookup: HashMap::new()
+            })
+        }
+    }
+
+    /// Registers an actor with the MasterControlProgram. If the registration
+    /// succeeds, the actor will be linked to the MasterControlProgram actor and
+    /// true is returned; if it fails, false is returned.
+    pub fn register(&self, name: &str, actor: &ActorAddress) -> bool{
+        let (tx, rx) = mpsc::channel();
+        let temp_actor = ActorAddress::new(tx);
+        let mut data = HashMap::new();
+        data.insert(MCP_REGISTER_NAME_KEY.to_string(), MessageDatum::from(name));
+        data.insert(MCP_REGISTER_ACTOR_KEY.to_string(), MessageDatum::from(actor));
+        Message::register().with_sender(&temp_actor)
+                           .with_map(data)
+                           .send_to(&self.actor);
+        let m = rx.recv().unwrap();
+        match *m.get_type() {
+            MessageType::RegisterResponse => {
+                match *m.get_datum() {
+                    MessageDatum::Str(_) => true,
+                    _ => false
+                }
+            },
+            _ => {
+                // Something's wrong
+                false
+            }
+        }
+    }
+
+    /// Queries the MasterControlProgram for an actor by name. If no actor is
+    /// present with the specified name, None will be returned. This API is
+    /// synchronous.
+    pub fn where_is(&self, name: &str) -> Option<ActorAddress> {
+        let (tx, rx) = mpsc::channel();
+        let temp_actor = ActorAddress::new(tx);
+        Message::where_is().with_sender(&temp_actor)
+                           .with_str(name)
+                           .send_to(&self.actor);
+        let m = rx.recv().unwrap();
+        match *m.get_type() {
+            MessageType::WhereIsResponse => {
+                match *m.get_datum() {
+                    MessageDatum::Act(ref a) => { Some(a.clone()) },
+                    _ => None
+                }
+            },
+            _ => {
+                // Something's wrong
+                None
+            }
+        }
+    }
+
+    /// Tears down the MCP. Use the usual trick to make it synchronous.
+    fn tear_down(&self) {
+        let (tx, rx) = mpsc::channel();
+        let temp_actor = ActorAddress::new(tx);
+        Message::link().with_sender(&temp_actor).send_to(&self.actor);
+        Message::shutdown().send_to(&self.actor);
+        let m = rx.recv().unwrap();
+        assert!(*m.get_type() == MessageType::Exited);
+    }
+}
+
+impl Drop for MasterControlProgram {
+    fn drop(&mut self) {
+        self.tear_down();
+    }
 }
 
 #[cfg(test)]

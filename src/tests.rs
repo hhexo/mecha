@@ -20,6 +20,7 @@ use MessageDatum;
 use Message;
 use ActorAddress;
 use spawn;
+use MasterControlProgram;
 
 pub struct Echo;
 
@@ -37,6 +38,26 @@ impl Actor for Echo {
                 Message::exited().with_sender(myself)
                                  .with_datum(message.get_datum().clone())
                                  .send_to(message.get_sender());
+            },
+            MessageType::Register => {
+                Message::register().with_sender(myself)
+                                   .with_datum(message.get_datum().clone())
+                                   .send_to(message.get_sender());
+            },
+            MessageType::RegisterResponse => {
+                Message::register_response().with_sender(myself)
+                                            .with_datum(message.get_datum().clone())
+                                            .send_to(message.get_sender());
+            },
+            MessageType::WhereIs => {
+                Message::where_is().with_sender(myself)
+                                   .with_datum(message.get_datum().clone())
+                                   .send_to(message.get_sender());
+            },
+            MessageType::WhereIsResponse => {
+                Message::where_is_response().with_sender(myself)
+                                            .with_datum(message.get_datum().clone())
+                                            .send_to(message.get_sender());
             },
             MessageType::Link => {
                 Message::link().with_sender(myself)
@@ -76,7 +97,7 @@ fn basic_check() {
     Message::custom(TEST).with_sender(&fake_actor).with_act(&worker).send_to(&worker);
     Message::shutdown().with_sender(&fake_actor).send_to(&worker);
 
-     // Hopefully this is enough for the stop message to get to the worker
+    // Hopefully this is enough for the stop message to get to the worker
     thread::sleep(Duration::from_millis(500));
 
     // First we're going to receive the echoed Link message.
@@ -152,5 +173,40 @@ fn basic_check() {
         _ => { assert!(false, "Unexpected message datum"); }
     }
 }
+
+#[test]
+fn check_mcp() {
+    let mcp = MasterControlProgram::new();
+
+    let echo = spawn(Echo);
+    // First registration succeeds
+    assert_eq!(mcp.register("echo", &echo), true);
+    // Second registration with the same name fails
+    assert_eq!(mcp.register("echo", &echo), false);
+
+    // If we retrieve echo now we should get Some().
+    let mut retrieved_echo = mcp.where_is("echo");
+    match retrieved_echo {
+        None => { assert!(false, "Expected to retrieve echo"); },
+        Some(ref a) => {
+            assert_eq!(echo.id, a.id);
+        }
+    }
+
+    // Shut echo down
+    Message::shutdown().send_to(&echo);
+
+    // Make sure enough time passes for the Exited message to reach the MCP.
+    thread::sleep(Duration::from_millis(500));
+
+    // If we retrieve echo now we should get None.
+    retrieved_echo = mcp.where_is("echo");
+    match retrieved_echo {
+        None => (),
+        Some(_) => { assert!(false, "Expected to not retrieve echo"); }
+    }
+}
+
+
 
 }

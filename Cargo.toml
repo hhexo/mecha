@@ -4,3 +4,4 @@ version = "0.1.0"
 authors = ["Dario Domizioli <dario.domizioli@gmail.com>"]
 
 [dependencies]
+uuid = { version = "0.2", features = ["v4"] }
