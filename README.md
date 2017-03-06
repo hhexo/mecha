@@ -31,19 +31,16 @@ extern crate mecha;
 
 fn main() {
     let worker = mecha::Actor::new().with_state(mecha::Stateless)
-        .with_match(Box::new(|msg: &mecha::Message,
-                              _: &mecha::Stateless| {
+        .with_match(|msg, _| {
             match *msg.get_type() {
                 mecha::MessageType::Custom(_) => true,
                 _ => false
             }
-        }))
-        .with_action(Box::new(|msg: &mecha::Message,
-                               _: &mut mecha::Stateless,
-                               _: &mecha::ActorAddress| {
+        })
+        .with_action(|msg, _, _| {
             println!("{:?}", msg);
             Ok(())
-        }))
+        })
         .spawn();
 
     // Void message
@@ -96,19 +93,16 @@ fn main() {
     let initiator = mecha::ActorAddress::new(tx);
 
     let worker = mecha::Actor::new().with_state(mecha::Stateless)
-        .with_match(Box::new(|msg: &mecha::Message,
-                              _: &mecha::Stateless| {
+        .with_match(|msg, _| {
             match *msg.get_type() {
                 mecha::MessageType::Custom(_) => true,
                 _ => false
             }
-        }))
-        .with_action(Box::new(|msg: &mecha::Message,
-                               _: &mut mecha::Stateless,
-                               _: &mecha::ActorAddress| {
+        })
+        .with_action(|msg, _, _| {
             println!("{:?}", msg);
             Ok(())
-        }))
+        })
         .spawn_link(&initiator);
 
     // Void message
@@ -140,19 +134,16 @@ fn main() {
     let initiator = mecha::ActorAddress::new(tx);
 
     let worker = mecha::Actor::new().with_state(mecha::Stateless)
-        .with_match(Box::new(|msg: &mecha::Message,
-                              _: &mecha::Stateless| {
+        .with_match(|msg, _| {
             match *msg.get_type() {
                 mecha::MessageType::Custom(_) => true,
                 _ => false
             }
-        }))
-        .with_action(Box::new(|msg: &mecha::Message,
-                               _: &mut mecha::Stateless,
-                               _: &mecha::ActorAddress| {
+        })
+        .with_action(|msg, _, _| {
             println!("{:?}", msg);
             Ok(())
-        }))
+        })
         .spawn();
 
     // Link after spawn
@@ -185,50 +176,42 @@ struct CounterState { active: bool, count: i32 }
 const INC : &'static str = ":inc";
 const ACTIVATE : &'static str = ":activate";
 
-fn match_inc(m: &mecha::Message, state: &CounterState) -> bool {
-    match *m.get_type() {
-        mecha::MessageType::Custom(INC) => {
-            state.active
-        },
-        _ => false
-    }
-}
-fn do_inc(_: &mecha::Message,
-          state: &mut CounterState,
-          _: &mecha::ActorAddress) -> Result<(), String> {
-    state.count += 1;
-    println!("The new count is {}", state.count);
-    Ok(())
-}
-
-fn match_activate(m: &mecha::Message, _: &CounterState) -> bool {
-    match *m.get_type() {
-        mecha::MessageType::Custom(ACTIVATE) => true,
-        _ => false
-    }
-}
-fn do_activate(_: &mecha::Message,
-               state: &mut CounterState,
-               _: &mecha::ActorAddress) -> Result<(), String> {
-    state.active = true;
-    println!("Actor activated!");
-    Ok(())
-}
-
 #[test]
 fn test_stateful() {
     let (tx, rx) = mpsc::channel();
     let initiator = mecha::ActorAddress::new(tx);
 
     let worker = mecha::Actor::new()
+        // Initial state
         .with_state(CounterState {
             active: false,
             count: 0
         })
-        .with_match(Box::new(match_inc))
-        .with_action(Box::new(do_inc))
-        .with_match(Box::new(match_activate))
-        .with_action(Box::new(do_activate))
+        // Specify increment match and action
+        .with_match(|m, state| {
+            match *m.get_type() {
+                mecha::MessageType::Custom(INC) => { state.active },
+                _ => false
+            }
+        })
+        .with_action(|_, state, _| {
+            state.count += 1;
+            println!("The new count is {}", state.count);
+            Ok(())
+        })
+        // Specify activate match and action
+        .with_match(|m, _| {
+            match *m.get_type() {
+                mecha::MessageType::Custom(ACTIVATE) => true,
+                _ => false
+            }
+        })
+        .with_action(|_, state, _| {
+            state.active = true;
+            println!("Actor activated!");
+            Ok(())
+        })
+        // Go!
         .spawn_link(&initiator);
 
     // Let's increment it three times.

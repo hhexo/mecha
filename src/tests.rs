@@ -27,19 +27,16 @@ fn basic_test() {
     let initiator = ActorAddress::new(tx.clone());
 
     let worker = Actor::new().with_state(Stateless)
-        .with_match(Box::new(|msg: &Message,
-                              _: &Stateless| {
+        .with_match(|msg, _| {
             match *msg.get_type() {
                 MessageType::Custom(_) => true,
                 _ => false
             }
-        }))
-        .with_action(Box::new(|msg: &Message,
-                               _: &mut Stateless,
-                               _: &ActorAddress| {
+        })
+        .with_action(|msg, _, _| {
             println!("{:?}", msg);
             Ok(())
-        }))
+        })
         .spawn_link(&initiator);
 
     Message::custom("blah").with_sender(&initiator).send_to(&worker);
@@ -68,50 +65,42 @@ struct CounterState { active: bool, count: i32 }
 const INC : &'static str = ":inc";
 const ACTIVATE : &'static str = ":activate";
 
-fn match_inc(m: &Message, state: &CounterState) -> bool {
-    match *m.get_type() {
-        MessageType::Custom(INC) => {
-            state.active
-        },
-        _ => false
-    }
-}
-fn do_inc(_: &Message,
-          state: &mut CounterState,
-          _: &ActorAddress) -> Result<(), String> {
-    state.count += 1;
-    println!("The new count is {}", state.count);
-    Ok(())
-}
-
-fn match_activate(m: &Message, _: &CounterState) -> bool {
-    match *m.get_type() {
-        MessageType::Custom(ACTIVATE) => true,
-        _ => false
-    }
-}
-fn do_activate(_: &Message,
-               state: &mut CounterState,
-               _: &ActorAddress) -> Result<(), String> {
-    state.active = true;
-    println!("Actor activated!");
-    Ok(())
-}
-
 #[test]
 fn test_stateful() {
     let (tx, rx) = mpsc::channel();
     let initiator = ActorAddress::new(tx);
 
     let worker = Actor::new()
+        // Initial state
         .with_state(CounterState {
             active: false,
             count: 0
         })
-        .with_match(Box::new(match_inc))
-        .with_action(Box::new(do_inc))
-        .with_match(Box::new(match_activate))
-        .with_action(Box::new(do_activate))
+        // Specify increment match and action
+        .with_match(|m, state| {
+            match *m.get_type() {
+                MessageType::Custom(INC) => { state.active },
+                _ => false
+            }
+        })
+        .with_action(|_, state, _| {
+            state.count += 1;
+            println!("The new count is {}", state.count);
+            Ok(())
+        })
+        // Specify activate match and action
+        .with_match(|m, _| {
+            match *m.get_type() {
+                MessageType::Custom(ACTIVATE) => true,
+                _ => false
+            }
+        })
+        .with_action(|_, state, _| {
+            state.active = true;
+            println!("Actor activated!");
+            Ok(())
+        })
+        // Go!
         .spawn_link(&initiator);
 
     // Let's increment it three times.

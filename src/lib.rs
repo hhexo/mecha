@@ -37,19 +37,16 @@
 //!
 //! fn main() {
 //!     let worker = mecha::Actor::new().with_state(mecha::Stateless)
-//!         .with_match(Box::new(|msg: &mecha::Message,
-//!                               _: &mecha::Stateless| {
+//!         .with_match(|msg, _| {
 //!             match *msg.get_type() {
 //!                 mecha::MessageType::Custom(_) => true,
 //!                 _ => false
 //!             }
-//!         }))
-//!         .with_action(Box::new(|msg: &mecha::Message,
-//!                                _: &mut mecha::Stateless,
-//!                                _: &mecha::ActorAddress| {
+//!         })
+//!         .with_action(|msg, _, _| {
 //!             println!("{:?}", msg);
 //!             Ok(())
-//!         }))
+//!         })
 //!         .spawn();
 //!
 //!     // Void message
@@ -102,19 +99,16 @@
 //!     let initiator = mecha::ActorAddress::new(tx);
 //!
 //!     let worker = mecha::Actor::new().with_state(mecha::Stateless)
-//!         .with_match(Box::new(|msg: &mecha::Message,
-//!                               _: &mecha::Stateless| {
+//!         .with_match(|msg, _| {
 //!             match *msg.get_type() {
 //!                 mecha::MessageType::Custom(_) => true,
 //!                 _ => false
 //!             }
-//!         }))
-//!         .with_action(Box::new(|msg: &mecha::Message,
-//!                                _: &mut mecha::Stateless,
-//!                                _: &mecha::ActorAddress| {
+//!         })
+//!         .with_action(|msg, _, _| {
 //!             println!("{:?}", msg);
 //!             Ok(())
-//!         }))
+//!         })
 //!         .spawn_link(&initiator);
 //!
 //!     // Void message
@@ -146,19 +140,16 @@
 //!     let initiator = mecha::ActorAddress::new(tx);
 //!
 //!     let worker = mecha::Actor::new().with_state(mecha::Stateless)
-//!         .with_match(Box::new(|msg: &mecha::Message,
-//!                               _: &mecha::Stateless| {
+//!         .with_match(|msg, _| {
 //!             match *msg.get_type() {
 //!                 mecha::MessageType::Custom(_) => true,
 //!                 _ => false
 //!             }
-//!         }))
-//!         .with_action(Box::new(|msg: &mecha::Message,
-//!                                _: &mut mecha::Stateless,
-//!                                _: &mecha::ActorAddress| {
+//!         })
+//!         .with_action(|msg, _, _| {
 //!             println!("{:?}", msg);
 //!             Ok(())
-//!         }))
+//!         })
 //!         .spawn();
 //!
 //!     // Link after spawn
@@ -191,50 +182,42 @@
 //! const INC : &'static str = ":inc";
 //! const ACTIVATE : &'static str = ":activate";
 //!
-//! fn match_inc(m: &mecha::Message, state: &CounterState) -> bool {
-//!     match *m.get_type() {
-//!         mecha::MessageType::Custom(INC) => {
-//!             state.active
-//!         },
-//!         _ => false
-//!     }
-//! }
-//! fn do_inc(_: &mecha::Message,
-//!           state: &mut CounterState,
-//!           _: &mecha::ActorAddress) -> Result<(), String> {
-//!     state.count += 1;
-//!     println!("The new count is {}", state.count);
-//!     Ok(())
-//! }
-//!
-//! fn match_activate(m: &mecha::Message, _: &CounterState) -> bool {
-//!     match *m.get_type() {
-//!         mecha::MessageType::Custom(ACTIVATE) => true,
-//!         _ => false
-//!     }
-//! }
-//! fn do_activate(_: &mecha::Message,
-//!                state: &mut CounterState,
-//!                _: &mecha::ActorAddress) -> Result<(), String> {
-//!     state.active = true;
-//!     println!("Actor activated!");
-//!     Ok(())
-//! }
-//!
 //! #[test]
 //! fn test_stateful() {
 //!     let (tx, rx) = mpsc::channel();
 //!     let initiator = mecha::ActorAddress::new(tx);
 //!
 //!     let worker = mecha::Actor::new()
+//!         // Initial state
 //!         .with_state(CounterState {
 //!             active: false,
 //!             count: 0
 //!         })
-//!         .with_match(Box::new(match_inc))
-//!         .with_action(Box::new(do_inc))
-//!         .with_match(Box::new(match_activate))
-//!         .with_action(Box::new(do_activate))
+//!         // Specify increment match and action
+//!         .with_match(|m, state| {
+//!             match *m.get_type() {
+//!                 mecha::MessageType::Custom(INC) => { state.active },
+//!                 _ => false
+//!             }
+//!         })
+//!         .with_action(|_, state, _| {
+//!             state.count += 1;
+//!             println!("The new count is {}", state.count);
+//!             Ok(())
+//!         })
+//!         // Specify activate match and action
+//!         .with_match(|m, _| {
+//!             match *m.get_type() {
+//!                 mecha::MessageType::Custom(ACTIVATE) => true,
+//!                 _ => false
+//!             }
+//!         })
+//!         .with_action(|_, state, _| {
+//!             state.active = true;
+//!             println!("Actor activated!");
+//!             Ok(())
+//!         })
+//!         // Go!
 //!         .spawn_link(&initiator);
 //!
 //!     // Let's increment it three times.
@@ -607,8 +590,9 @@ impl<ActorState: 'static + Sized + Default + Send> Actor<ActorState> {
     /// closures that take a reference to a Message and a reference to the
     /// current actor state. They must return true only on a successful match,
     /// and have no side effects.
-    pub fn with_match(mut self, mc: Box<Fn(&Message, &ActorState) -> MatchResult + Send>) -> Self {
-        self.matches.push(mc);
+    pub fn with_match<T>(mut self, mc: T) -> Self
+        where T: 'static + Fn(&Message, &ActorState) -> MatchResult + Send {
+        self.matches.push(Box::new(mc));
         self
     }
 
@@ -618,11 +602,12 @@ impl<ActorState: 'static + Sized + Default + Send> Actor<ActorState> {
     /// potentially modified). They also take a reference to the address of the
     /// actor process itself, so that it can be used as the sender of messages
     /// to other actor processes.
-    pub fn with_action(mut self, ac: Box<Fn(&Message, &mut ActorState, &ActorAddress) -> ActionResult + Send>) -> Self {
+    pub fn with_action<T>(mut self, ac: T) -> Self
+        where T: 'static + Fn(&Message, &mut ActorState, &ActorAddress) -> ActionResult + Send {
         while self.actions.len() < self.matches.len() {
             self.actions.push(Vec::new());
         }
-        self.actions[self.matches.len() -1].push(ac);
+        self.actions[self.matches.len() -1].push(Box::new(ac));
         self
     }
 
