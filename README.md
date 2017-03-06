@@ -19,122 +19,236 @@ haven't gone through the effort of uploading a crate to crates.io yet.
 
 `mecha = { git = "https://github.com/hhexo/mecha.git" }`
 
-# Actors and messages
+# Examples
 
-Here is a quick example of how to spawn an actor and send a message to it.
+## The simple example
+
+Here is a quick and dirty example of how to spawn an actor and send
+messages to it.
 
 ```
 extern crate mecha;
 
-struct ActorImplementation;
-
-impl mecha::Actor for ActorImplementation {
-    fn process_message(&mut self,
-                       message: mecha::Message,
-                       myself: &mecha::ActorAddress) {
-        println!("I received a message! It was of type...");
-        println!("    {:?}", message.get_type());
-        println!("...with datum...");
-        println!("    {:?}", message.get_datum());
-    }
-}
-
 fn main() {
-    let actor = mecha::spawn(ActorImplementation);
+    let worker = mecha::Actor::new().with_state(mecha::Stateless)
+        .with_match(Box::new(|msg: &mecha::Message,
+                              _: &mecha::Stateless| {
+            match *msg.get_type() {
+                mecha::MessageType::Custom(_) => true,
+                _ => false
+            }
+        }))
+        .with_action(Box::new(|msg: &mecha::Message,
+                               _: &mut mecha::Stateless,
+                               _: &mecha::ActorAddress| {
+            println!("{:?}", msg);
+            Ok(())
+        }))
+        .spawn();
 
-    mecha::Message::custom("MyMessage")
-        .with_datum(mecha::MessageDatum::from("blah"))
-        .send_to(&actor);
+    // Void message
+    mecha::Message::custom("blah").send_to(&worker);
+    // String message
+    mecha::Message::custom("blah").with_str("Hello!").send_to(&worker);
+    // Shut down the worker actor
+    mecha::Message::shutdown().send_to(&worker);
 
-    // Or, more simply:
-
-    mecha::Message::custom("MyMessage").with_str("blah").send_to(&actor);
-
-    // Be clean and don't forget to stop the actor at the end!
-
-    mecha::Message::shutdown().send_to(&actor);
-}
-```
-
-Generally you will then have to wait until the actor (which is running in
-another thread) has finished processing the messages and printed the output.
-For a quick-and-dirty example you can just wait a bit:
-
-```
+    // Wait a bit
     use std::thread;
     use std::time::Duration;
     thread::sleep(Duration::from_millis(500));
-```
-
-However, that is not the best way to do it. You can create a channel and
-wrap the sender part of it in an ActorAddress; then you can use `spawn_link`
-instead, so your fake actor will be notified when the actor shuts down. At
-that point you can use the receiver part of the channel to wait for the
-Exited message.
-
-The following is the preferred pattern to use:
-
-```
-struct ActorImplementation;
-
-impl mecha::Actor for ActorImplementation {
-    fn process_message(&mut self,
-                       message: mecha::Message,
-                       myself: &mecha::ActorAddress) {
-        println!("I received a message! It was of type...");
-        println!("    {:?}", message.get_type());
-        println!("...with datum...");
-        println!("    {:?}", message.get_datum());
-    }
 }
+```
+
+Generally you will want to wait until the actor process (which is running in
+another thread) has finished processing the messages and printed the output.
+
+For this quick and dirty example we have just waited a bit. However, that is
+not the correct way to do it. You really want to wait until you know for
+certain that the actor process has shut down.
+
+## Linking actors
+
+Actor processes can be _linked_ to each other. If A is linked to B, then B
+will send A an `Exited` message whenever it exits due to either a shutdown
+request (in which case the datum of the message is `Void`) or an error (in
+which case the datum of the message is a `String` containing an error
+reason).
+
+Your main program is not an actor process, however. How can you link it to
+the actor process you have spawned?
+
+You can create a Rust `mpsc` channel and wrap the sender part of it in an
+ActorAddress to create a "fake" actor address. Then you can use `spawn_link`
+instead of `spawn`, so your fake actor will be immediately linked to the
+spawned worker actor. Once the worker exits, an `Exited` message will be
+available at the receiving end of the `mpsc` channel, therefore you can wait
+for it.
+
+The following is an example of such pattern:
+
+```
+extern crate mecha;
+use std::sync::mpsc;
 
 fn main() {
-    let (tx, rx) = std::sync::mpsc::channel();
+    let (tx, rx) = mpsc::channel();
     let initiator = mecha::ActorAddress::new(tx);
-    let actor = mecha::spawn_link(ActorImplementation, &initiator);
 
-    mecha::Message::custom("MyMessage").with_str("blah").send_to(&actor);
+    let worker = mecha::Actor::new().with_state(mecha::Stateless)
+        .with_match(Box::new(|msg: &mecha::Message,
+                              _: &mecha::Stateless| {
+            match *msg.get_type() {
+                mecha::MessageType::Custom(_) => true,
+                _ => false
+            }
+        }))
+        .with_action(Box::new(|msg: &mecha::Message,
+                               _: &mut mecha::Stateless,
+                               _: &mecha::ActorAddress| {
+            println!("{:?}", msg);
+            Ok(())
+        }))
+        .spawn_link(&initiator);
 
-    mecha::Message::shutdown().send_to(&actor);
+    // Void message
+    mecha::Message::custom("blah").send_to(&worker);
+    // String message
+    mecha::Message::custom("blah").with_str("Hello!").send_to(&worker);
+    // Shut down the worker actor
+    mecha::Message::shutdown().send_to(&worker);
 
-    let m = rx.recv().unwrap();
-    assert!(*m.get_type() == mecha::MessageType::Exited);
-}
-```
-You can even have an actor spawn another and link to it during its
-initialization. For example, an actor implementation could look like this:
-
-```
-struct ActorImplementation;
-
-impl mecha::Actor for ActorImplementation {
-    fn process_message(&mut self,
-                       message: mecha::Message,
-                       myself: &mecha::ActorAddress) {
-        println!("I received a message! It was of type...");
-        println!("    {:?}", message.get_type());
-        println!("...with datum...");
-        println!("    {:?}", message.get_datum());
+    // Now wait for the actor to send the Exited message back to us
+    let msg = rx.recv().unwrap();
+    assert_eq!(*msg.get_type(), mecha::MessageType::Exited);
+    match *msg.get_datum() {
+        mecha::MessageDatum::Void => { println!("Actor exited cleanly."); },
+        _ => { println!("Actor must have exited with an error."); }
     }
 }
+```
 
-struct InitiatorActorImplementation;
+It is also possible to link to an actor _after_ it has been spawned. This is
+done by sending a `Link` message to an existing actor process.
 
-impl mecha::Actor for InitiatorActorImplementation {
-    fn process_message(&mut self,
-                       message: mecha::Message,
-                       myself: &mecha::ActorAddress) {
-        match *message.get_type() {
-            mecha::MessageType::Init => {
-                mecha::spawn_link(ActorImplementation, myself);
-            },
-            mecha::MessageType::Exited => {
-                // The other actor has finished, so we can send ourselves
-                // a Shutdown message.
-                mecha::Message::shutdown().send_to(myself);
-            },
-            _ => ()
-        }
+```
+extern crate mecha;
+use std::sync::mpsc;
+
+fn main() {
+    let (tx, rx) = mpsc::channel();
+    let initiator = mecha::ActorAddress::new(tx);
+
+    let worker = mecha::Actor::new().with_state(mecha::Stateless)
+        .with_match(Box::new(|msg: &mecha::Message,
+                              _: &mecha::Stateless| {
+            match *msg.get_type() {
+                mecha::MessageType::Custom(_) => true,
+                _ => false
+            }
+        }))
+        .with_action(Box::new(|msg: &mecha::Message,
+                               _: &mut mecha::Stateless,
+                               _: &mecha::ActorAddress| {
+            println!("{:?}", msg);
+            Ok(())
+        }))
+        .spawn();
+
+    // Link after spawn
+    mecha::Message::link().with_sender(&initiator).send_to(&worker);
+
+    // ...
+}
+```
+
+In fact, the `spawn_link` function does nothing more than spawning an actor
+process and immediately sending a `Link` message to it.
+
+## Stateful actors
+
+In the previous examples, the actor process was stateless; however it is
+possible to have stateful actors so that match clauses can make informed
+decisions based on state, and actions can modify the actor's state.
+
+Here is an example of a counter which is sensitive to two messages: one that
+increments it only if the counter is "active", and the other one that
+activates the actor.
+
+```
+extern crate mecha;
+use std::sync::mpsc;
+
+#[derive(Default)]
+struct CounterState { active: bool, count: i32 }
+
+const INC : &'static str = ":inc";
+const ACTIVATE : &'static str = ":activate";
+
+fn match_inc(m: &mecha::Message, state: &CounterState) -> bool {
+    match *m.get_type() {
+        mecha::MessageType::Custom(INC) => {
+            state.active
+        },
+        _ => false
+    }
+}
+fn do_inc(_: &mecha::Message,
+          state: &mut CounterState,
+          _: &mecha::ActorAddress) -> Result<(), String> {
+    state.count += 1;
+    println!("The new count is {}", state.count);
+    Ok(())
+}
+
+fn match_activate(m: &mecha::Message, _: &CounterState) -> bool {
+    match *m.get_type() {
+        mecha::MessageType::Custom(ACTIVATE) => true,
+        _ => false
+    }
+}
+fn do_activate(_: &mecha::Message,
+               state: &mut CounterState,
+               _: &mecha::ActorAddress) -> Result<(), String> {
+    state.active = true;
+    println!("Actor activated!");
+    Ok(())
+}
+
+#[test]
+fn test_stateful() {
+    let (tx, rx) = mpsc::channel();
+    let initiator = mecha::ActorAddress::new(tx);
+
+    let worker = mecha::Actor::new()
+        .with_state(CounterState {
+            active: false,
+            count: 0
+        })
+        .with_match(Box::new(match_inc))
+        .with_action(Box::new(do_inc))
+        .with_match(Box::new(match_activate))
+        .with_action(Box::new(do_activate))
+        .spawn_link(&initiator);
+
+    // Let's increment it three times.
+    mecha::Message::custom(INC).send_to(&worker);
+    mecha::Message::custom(INC).send_to(&worker);
+    mecha::Message::custom(INC).send_to(&worker);
+    thread::sleep(Duration::from_millis(500));
+    // Nothing is really happening so far, we must also activate the actor.
+    mecha::Message::custom(ACTIVATE).send_to(&worker);
+    // Now things should be happening, and they should not be interrupted by
+    // this shutdown message because there were still messages in the actor
+    // process's mailbox and they are being processed before the shutdown.
+    mecha::Message::shutdown().send_to(&worker);
+
+    // Now wait for the actor to send the Exited message back to us
+    let msg = rx.recv().unwrap();
+    assert_eq!(*msg.get_type(), mecha::MessageType::Exited);
+    match *msg.get_datum() {
+        mecha::MessageDatum::Void => { println!("Actor exited cleanly."); },
+        _ => { println!("Actor must have exited with an error."); }
     }
 }
 ```
