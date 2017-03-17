@@ -323,46 +323,45 @@ pub enum MessageDatum {
     Act(ActorAddress)
 }
 impl MessageDatum {
-    /// Consumes the MessageDatum and converts it to i64 if possible.
-    pub fn as_i64(self) -> Option<i64> {
-        match self {
+    /// Extracts (clones) an i64 from the MessageDatum if possible.
+    pub fn as_i64(&self) -> Option<i64> {
+        match *self {
             MessageDatum::I64(x) => Some(x),
             _ => None
         }
     }
-    /// Consumes the MessageDatum and converts it to u64 if possible.
-    pub fn as_u64(self) -> Option<u64> {
-        match self {
+    /// Extracts (clones) an u64 from the MessageDatum if possible.
+    pub fn as_u64(&self) -> Option<u64> {
+        match *self {
             MessageDatum::U64(x) => Some(x),
             _ => None
         }
     }
-    /// Consumes the MessageDatum and converts it to f64 if possible.
-    pub fn as_f64(self) -> Option<f64> {
-        match self {
+    /// Extracts (clones) an f64 from the MessageDatum if possible.
+    pub fn as_f64(&self) -> Option<f64> {
+        match *self {
             MessageDatum::F64(x) => Some(x),
             _ => None
         }
     }
-    /// Consumes the MessageDatum and converts it to String if possible.
-    pub fn as_str(self) -> Option<String> {
-        match self {
-            MessageDatum::Str(x) => Some(x),
+    /// Extracts (clones) a String from the MessageDatum if possible.
+    pub fn as_str(&self) -> Option<String> {
+        match *self {
+            MessageDatum::Str(ref x) => Some(x.clone()),
             _ => None
         }
     }
-    /// Consumes the MessageDatum and converts it to a map if possible.
-    pub fn as_map(self) -> Option<HashMap<String, MessageDatum>> {
-        match self {
-            MessageDatum::Map(m) => Some(m),
+    /// Extracts (clones) a Map from the MessageDatum if possible.
+    pub fn as_map(&self) -> Option<HashMap<String, MessageDatum>> {
+        match *self {
+            MessageDatum::Map(ref m) => Some(m.clone()),
             _ => None
         }
     }
-    /// Consumes the MessageDatum and converts it to an ActorAddress if
-    /// possible.
-    pub fn as_act(self) -> Option<ActorAddress> {
-        match self {
-            MessageDatum::Act(a) => Some(a),
+    /// Extracts (clones) an ActorAddress from the MessageDatum if possible.
+    pub fn as_act(&self) -> Option<ActorAddress> {
+        match *self {
+            MessageDatum::Act(ref a) => Some(a.clone()),
             _ => None
         }
     }

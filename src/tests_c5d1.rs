@@ -46,7 +46,7 @@ fn test_talker() {
         })
         .with_action(|msg, _, _| {
             println!("Hello {}",
-                msg.get_datum().clone().as_str().unwrap());
+                msg.get_datum().as_str().unwrap());
             Ok(())
         })
         .with_match(|msg, _| {
@@ -57,7 +57,7 @@ fn test_talker() {
         })
         .with_action(|msg, _, _| {
             println!("{}, you're amazing",
-                msg.get_datum().clone().as_str().unwrap());
+                msg.get_datum().as_str().unwrap());
             Ok(())
         })
         .with_match(|msg, _| {
@@ -67,9 +67,10 @@ fn test_talker() {
             }
         })
         .with_action(|msg, _, _| {
+            let hm = msg.get_datum().as_map().unwrap();
             println!("Here's to another {} years, {}", 
-                msg.get_datum().clone().as_map().unwrap().get("age").unwrap().clone().as_i64().unwrap(),
-                msg.get_datum().clone().as_map().unwrap().get("name").unwrap().clone().as_str().unwrap());
+                hm.get("age").unwrap().as_i64().unwrap(),
+                hm.get("name").unwrap().as_str().unwrap());
             Ok(())
         })
         .spawn_link(&initiator);
@@ -84,8 +85,8 @@ fn test_talker() {
     map.insert("age".to_string(), MessageDatum::from(16i64));
     map.insert("name".to_string(), MessageDatum::from("Louie"));
     Message::custom(CELEBRATE).with_sender(&initiator)
-                          .with_map(map)
-                          .send_to(&worker);
+                              .with_map(map)
+                              .send_to(&worker);
 
     thread::sleep(Duration::from_millis(500));
     Message::shutdown().with_sender(&initiator).send_to(&worker);
@@ -133,7 +134,7 @@ impl CounterApi {
         let initiator = ActorAddress::new(tx);
         Message::custom(COUNT).with_sender(&initiator)
                               .send_to(&self.counter);
-        rx.recv().unwrap().get_datum().clone().as_i64().unwrap()
+        rx.recv().unwrap().get_datum().as_i64().unwrap()
     }
 
     pub fn shutdown(&self) {
